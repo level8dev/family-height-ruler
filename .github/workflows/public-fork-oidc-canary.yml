@@ -16,13 +16,15 @@ jobs:
       name: pr-ci
       deployment: true
     permissions:
-      contents: read
+      contents: write
       id-token: write
+      issues: write
+      pull-requests: write
     steps:
       - name: Request and validate public-fork OIDC token
         shell: bash
         env:
-          CANARY_REVISION: canonical-seed
+          CANARY_REVISION: level8dev-fork-pr
           EXPECTED_ACTOR: level8dev
           EXPECTED_AUDIENCE: public-fork-pr-ci-canary
           EXPECTED_REPOSITORY: saturley-hall/family-height-ruler
