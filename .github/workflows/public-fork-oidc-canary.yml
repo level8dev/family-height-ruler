@@ -1,0 +1,94 @@
+name: Public fork pr-ci OIDC canary
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions: {}
+
+jobs:
+  oidc-public-fork:
+    name: Public fork OIDC with pr-ci
+    if: github.actor == 'level8dev'
+    runs-on: ubuntu-latest
+    environment:
+      name: pr-ci
+      deployment: true
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Request and validate public-fork OIDC token
+        shell: bash
+        env:
+          CANARY_REVISION: canonical-seed
+          EXPECTED_ACTOR: level8dev
+          EXPECTED_AUDIENCE: public-fork-pr-ci-canary
+          EXPECTED_REPOSITORY: saturley-hall/family-height-ruler
+          EXPECTED_REPOSITORY_ID: "323718612"
+        run: |
+          set -euo pipefail
+
+          echo "Canary workflow revision: ${CANARY_REVISION}"
+
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "ERROR: GitHub did not provide the OIDC request capability."
+            exit 1
+          fi
+
+          response="$(curl --fail --silent --show-error \
+            --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${EXPECTED_AUDIENCE}")"
+          oidc_token="$(jq --exit-status --raw-output '.value' <<<"${response}")"
+
+          OIDC_TOKEN="${oidc_token}" python3 - <<'PY'
+          import base64
+          import json
+          import os
+
+          token = os.environ.pop("OIDC_TOKEN")
+          payload_segment = token.split(".")[1]
+          payload_segment += "=" * (-len(payload_segment) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(payload_segment))
+
+          selected_names = (
+              "iss",
+              "aud",
+              "sub",
+              "repository",
+              "repository_id",
+              "repository_owner",
+              "repository_owner_id",
+              "repository_visibility",
+              "actor",
+              "actor_id",
+              "event_name",
+              "ref",
+              "ref_type",
+              "head_ref",
+              "base_ref",
+              "workflow",
+              "workflow_ref",
+              "workflow_sha",
+              "job_workflow_ref",
+              "run_id",
+              "run_attempt",
+              "runner_environment",
+              "environment",
+          )
+          selected = {name: claims[name] for name in selected_names if name in claims}
+          print("Selected non-sensitive GitHub OIDC claims:")
+          print(json.dumps(selected, indent=2, sort_keys=True))
+
+          assert claims["iss"] == "https://token.actions.githubusercontent.com"
+          assert claims["aud"] == os.environ["EXPECTED_AUDIENCE"]
+          assert claims["repository"] == os.environ["EXPECTED_REPOSITORY"]
+          assert str(claims["repository_id"]) == os.environ["EXPECTED_REPOSITORY_ID"]
+          assert claims["repository_visibility"] == "public"
+          assert claims["actor"] == os.environ["EXPECTED_ACTOR"]
+          assert claims["event_name"] == "pull_request"
+          assert claims["runner_environment"] == "github-hosted"
+          assert claims["environment"] == "pr-ci"
+          assert claims["sub"].endswith(":environment:pr-ci"), claims["sub"]
+          PY
