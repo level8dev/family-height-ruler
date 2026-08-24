@@ -10,7 +10,7 @@ permissions: {}
 jobs:
   oidc-public-fork:
     name: Public fork OIDC with pr-ci
-    if: github.actor == 'level8dev'
+    if: github.event.pull_request.user.login == 'level8dev'
     runs-on: ubuntu-latest
     environment:
       name: pr-ci
